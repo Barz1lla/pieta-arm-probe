@@ -2,7 +2,7 @@ name: arm-probe
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   probe:
@@ -13,24 +13,23 @@ jobs:
       - name: Identify the silicon
         run: |
           echo "uname: $(uname -m)  kernel: $(uname -r)"
-          echo "--- cpuinfo model ---"
-          grep -m1 -i "model name\|CPU part\|BogoMIPS" /proc/cpuinfo || true
-          echo "--- feature flags (the acceptance test) ---"
+          grep -m1 -i "CPU implementer\|CPU architecture" /proc/cpuinfo || true
           for f in i8mm asimddp sve sve2 bf16; do
             if grep -qw "$f" /proc/cpuinfo; then echo "PRESENT $f"; else echo "ABSENT  $f"; fi
           done
-          echo "--- MIDR ---"
-          grep -m1 -i "CPU implementer\|CPU architecture" /proc/cpuinfo || true
 
-      - name: Build and run the i8mm path
+      - name: Characterise VMMLA layout
         run: |
-          set -x
           gcc --version | head -1
-          gcc -O2 -march=armv8.6-a+i8mm -o i8mm_test i8mm_test.c -static || \
-          gcc -O2 -march=armv8.2-a+i8mm -o i8mm_test i8mm_test.c -static
+          gcc -O2 -march=armv8.6-a+i8mm -o vmmla_probe vmmla_probe.c -static
+          ./vmmla_probe
+
+      - name: Build and run the i8mm test
+        run: |
+          gcc -O2 -march=armv8.6-a+i8mm -o i8mm_test i8mm_test.c -static
           ./i8mm_test
 
-      - name: Build and run the DotProd path (control)
+      - name: Build and run the DotProd control
         run: |
           gcc -O2 -march=armv8.2-a+dotprod -o sdot_test sdot_test.c -static
           ./sdot_test

@@ -1,7 +1,14 @@
-/* i8mm correctness test — V2 stretch path.
- * Correction 2026-11-21: the first version modelled the reference as a 2x2 GEMM and FAILED on silicon. The fault was the
- * reference, not the CPU: vmmlaq_s32(int32x4 acc, int8x16 a, int8x16 b) accumulates FOUR independent 4-byte dot products
- * into the four lanes — acc[i] += sum(a[4i..4i+3] * b[4i..4i+3]). The reference below matches the instruction.
+/* i8mm correctness test — V2 stretch path. Third attempt; the first two failed on the REFERENCE, not the silicon.
+ *
+ * VMMLA semantics (Arm ARM): Vd.4S += Vn.16B x Vm.16B where
+ *   Vd.4S is a 2x2 matrix of int32 accumulators, row-major: [r0c0, r0c1, r1c0, r1c1]
+ *   Vn.16B is a 2x8 int8 matrix, row-major (a[0..7] = row 0, a[8..15] = row 1)
+ *   Vm.16B is an 8x2 int8 matrix, row-major, so element (k, j) is b[2k + j]
+ * hence
+ *   C[r][c] = sum_{k=0..7} a[8r + k] * b[2k + c]
+ *
+ * The earlier versions passed 2-byte rows through vld1_s8 (an 8-byte load) and then modelled the reference as four
+ * independent 4-wide dots. Both are reference bugs; the CPU executed correctly.
  */
 #include <arm_neon.h>
 #include <stdio.h>
@@ -18,11 +25,13 @@ int main(void) {
         b[i] = (int8_t)((i * 7 + 1) % 23 - 11);
     }
 
-    /* reference: four lanes, each a 4-wide dot product */
     int32_t ref[4] = {0, 0, 0, 0};
-    for (int lane = 0; lane < 4; lane++)
-        for (int k = 0; k < 4; k++)
-            ref[lane] += (int32_t)a[lane * 4 + k] * (int32_t)b[lane * 4 + k];
+    for (int r = 0; r < 2; r++)
+        for (int c = 0; c < 2; c++) {
+            int32_t s = 0;
+            for (int k = 0; k < 8; k++) s += (int32_t)a[8 * r + k] * (int32_t)b[2 * k + c];
+            ref[2 * r + c] = s;
+        }
 
     int8x16_t va = vld1q_s8(a), vb = vld1q_s8(b);
     int32x4_t acc = vdupq_n_s32(0);

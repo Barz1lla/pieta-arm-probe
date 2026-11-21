@@ -1,14 +1,14 @@
-/* i8mm correctness test — V2 stretch path. Third attempt; the first two failed on the REFERENCE, not the silicon.
+/* i8mm correctness test — V2 stretch path. Reference derived from probes ON THE HARDWARE, not from recollection.
  *
- * VMMLA semantics (Arm ARM): Vd.4S += Vn.16B x Vm.16B where
- *   Vd.4S is a 2x2 matrix of int32 accumulators, row-major: [r0c0, r0c1, r1c0, r1c1]
- *   Vn.16B is a 2x8 int8 matrix, row-major (a[0..7] = row 0, a[8..15] = row 1)
- *   Vm.16B is an 8x2 int8 matrix, row-major, so element (k, j) is b[2k + j]
- * hence
- *   C[r][c] = sum_{k=0..7} a[8r + k] * b[2k + c]
+ * Probe results (Azure Cobalt-class Neoverse, i8mm=1):
+ *   P1 a=1s b=1s     -> [8 8 8 8]        each lane contracts 8 terms
+ *   P2 a=e0 b=1..16  -> [1 9 0 0]        a[0] pairs with b[0] in lane 0 and b[8] in lane 1
+ *   P3 a=e8 b=1s     -> [0 0 1 1]        a[8] feeds lanes 2 and 3
+ *   P4 a=1s b=1..16  -> [36 100 36 100]  lane0 = sum b[0..7], lane1 = sum b[8..15]
  *
- * The earlier versions passed 2-byte rows through vld1_s8 (an 8-byte load) and then modelled the reference as four
- * independent 4-wide dots. Both are reference bugs; the CPU executed correctly.
+ * Hence, with A = 2x8 row-major (a[8r+k]) and B = 8x2 stored as two contiguous 8-byte columns (b[8c+k]):
+ *   lane (r,c) = sum_{k=0..7} a[8r + k] * b[8c + k]
+ * which is a 2x2 matrix product, A x B, in column-major B.
  */
 #include <arm_neon.h>
 #include <stdio.h>
@@ -29,7 +29,7 @@ int main(void) {
     for (int r = 0; r < 2; r++)
         for (int c = 0; c < 2; c++) {
             int32_t s = 0;
-            for (int k = 0; k < 8; k++) s += (int32_t)a[8 * r + k] * (int32_t)b[2 * k + c];
+            for (int k = 0; k < 8; k++) s += (int32_t)a[8 * r + k] * (int32_t)b[8 * c + k];
             ref[2 * r + c] = s;
         }
 
